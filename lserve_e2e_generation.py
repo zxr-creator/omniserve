@@ -108,9 +108,10 @@ def create_test_prompts(conv_t, test_length=65536, test_depth=0.5, haystack_dir=
     return request_list
 
 
-def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingParams]]):
+def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingParams]], output_path: str = None):
     """Continuously process a list of prompts and handle the outputs."""
     request_id = 0
+    finished_records = []
 
     while test_prompts or engine.has_unfinished_requests():
         if test_prompts:
@@ -153,6 +154,10 @@ def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingPa
         for request_output in requests_outputs:
             if request_output["finished"]:
                 finished += 1
+                finished_records.append({
+                    "id": request_output["id"],
+                    "text": request_output["text"],
+                })
                 print(
                     f"{BG_GREEN}[Conversation {request_output['id']} output]{RESET} {request_output['text']}"
                 )
@@ -166,6 +171,13 @@ def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingPa
                 break
     assert num_test_prompts == finished
     print(f"{BG_PINK}{finished} requests are finished.{RESET}")
+
+    if output_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            for rec in finished_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        print(f"{BG_PINK}Wrote {len(finished_records)} outputs to {output_path}{RESET}")
 
 
 def initialize_engine(args: argparse.Namespace) -> LLMEngine:
@@ -188,7 +200,7 @@ def main(args: argparse.Namespace):
         test_prompts = create_test_prompts(
             conv_t=conversation_template
         )
-    process_requests(engine, test_prompts)
+    process_requests(engine, test_prompts, output_path=args.output_path)
 
 
 if __name__ == "__main__":
@@ -213,6 +225,12 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Optional cap on the number of JSONL records to run.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default=None,
+        help="Optional path to a JSONL file where finished outputs (id, text) will be written.",
     )
     parser = EngineArgs.add_cli_args(parser)
     args = parser.parse_args()

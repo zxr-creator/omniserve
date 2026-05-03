@@ -3,6 +3,7 @@
 model_path="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 precision="w16a16kv8"
 dataset_path=./aime24_llama8b.jsonl
+output_dir=/data/datasets/xinrui/My_Projects/v0.3/omniserve/results
 
 dynamic_sparse_token_budgets=(464 976 1488 2000 2512 3024)
 
@@ -36,5 +37,6 @@ for dynamic_sparse_token_budget in "${dynamic_sparse_token_budgets[@]}"; do
     --sub-chunk-per-block 1 \
     --dynamic-sparse-token-budget ${dynamic_sparse_token_budget} \
     --selector-update-interval 1 \
-    --multiblock-switch 2048
+    --multiblock-switch 2048 \
+    --output-path ${output_dir}/lserve_aime24_budget${dynamic_sparse_token_budget}.jsonl
 done
