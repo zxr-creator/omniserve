@@ -2,13 +2,15 @@
 
 model_path="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 precision="w16a16kv8"
+dataset_path=./aime24_llama8b.jsonl
 
-dynamic_sparse_token_budgets=(29 61 93 125 157 189)
+dynamic_sparse_token_budgets=(464 976 1488 2000 2512 3024)
+
 
 for dynamic_sparse_token_budget in "${dynamic_sparse_token_budgets[@]}"; do
   echo "Running with dynamic_sparse_token_budget=${dynamic_sparse_token_budget}"
 
-  python lserve_e2e_generation.py \
+  python ../lserve_e2e_generation.py \
     --model $model_path \
     --ifb-mode \
     --tokenizer-mode "auto" \

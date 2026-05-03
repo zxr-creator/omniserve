@@ -233,7 +233,7 @@ class EngineArgs:
             "--block-size",
             type=int,
             default=EngineArgs.block_size,
-            choices=[64],
+            choices=[16,64],
             help="token block size",
         )
         # TODO(woosuk): Support fine-grained seeds (e.g., seed per request).

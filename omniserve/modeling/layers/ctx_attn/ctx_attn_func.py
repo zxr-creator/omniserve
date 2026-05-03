@@ -2,9 +2,10 @@ import torch
 from itertools import count
 from block_sparse_attn import (
     token_streaming_attn_func,
-    block_streaming_attn_func,
-    flash_attn_varlen_func
+    block_streaming_attn_func
 )
+
+from flash_attn import flash_attn_varlen_func   
 
 def attention_wrapper(
     q_unpad, k_unpad, v_unpad,
