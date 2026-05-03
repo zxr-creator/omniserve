@@ -1,39 +1,38 @@
-# model_name="Llama-3-8B-Instruct-Gradient-1048k"
-attn_path=./attn_patterns/Llama-3-8B-Instruct-Gradient-1048k
-model_path=./models/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor
+# model_name="DeepSeek-R1-Distill-Llama-8B"
 
+model_path="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+precision="w16a16kv8"
 
-if [ ! -d "$model_path" ]; then
-  mkdir -p models
-  cd models
-  git clone https://huggingface.co/mit-han-lab/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor
-  cd ..
-fi
+dynamic_sparse_token_budgets=(29 61 93 125 157 189)
 
-precision="w8a8kv8"
+for dynamic_sparse_token_budget in "${dynamic_sparse_token_budgets[@]}"; do
+  echo "Running with dynamic_sparse_token_budget=${dynamic_sparse_token_budget}"
 
-NUM_RETRIEVAL_GPU_PAGE_BLOCKS=3000 \
-NUM_STREAMING_GPU_PAGE_BLOCKS=200 \
-python lserve_e2e_generation.py \
-  --model $model_path \
-  --ifb-mode \
-  --precision $precision \
-  --quant-path $model_path \
-  --group-size -1 \
-  --max-num-batched-tokens 4195000 \
-  --max-num-seqs 1 \
-  --omit-prompt \
-  --kv-quant-granularity "per_tensor" \
-  --chunk-prefill-size 32000 \
-  --multiblock-switch 2048 \
-  --static-sparse-attn-load-dir $attn_path \
-  --static-sparsity 0.5 \
-  --sparse-context-mode \
-  --sparse-decode-mode 1 \
-  --ctx-sink-token 128 \
-  --ctx-local-token 8192 \
-  --dec-sink-token 128 \
-  --dec-local-token 256 \
-  --sub-chunk-per-block 4 \
-  --dynamic-sparse-token-budget 4096 \
-  --selector-update-interval 4
+  python lserve_e2e_generation.py \
+    --model $model_path \
+    --ifb-mode \
+    --tokenizer-mode "auto" \
+    --load-format "auto" \
+    --dtype "auto" \
+    --block-size 16 \
+    --seed 0 \
+    --swap-space 4 \
+    --gpu-memory-utilization 0.90 \
+    --max-num-batched-tokens 262144 \
+    --max-num-seqs 256 \
+    --max-paddings 256 \
+    --precision $precision \
+    --group-size -1 \
+    --kv-quant-granularity "per_tensor" \
+    --chunk-prefill-size 32000 \
+    --static-sparsity 0.0 \
+    --ctx-sink-token 128 \
+    --ctx-local-token 8192 \
+    --dec-sink-token 16 \
+    --dec-local-token 32 \
+    --sparse-decode-mode 1 \
+    --sub-chunk-per-block 1 \
+    --dynamic-sparse-token-budget ${dynamic_sparse_token_budget} \
+    --selector-update-interval 1 \
+    --multiblock-switch 2048
+done
