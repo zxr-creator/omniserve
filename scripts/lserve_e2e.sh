@@ -2,6 +2,11 @@
 attn_path=./attn_patterns/Llama-3-8B-Instruct-Gradient-1048k
 model_path=./models/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor
 
+# AIME24 prompts (already chat-templated for the Llama-8B family).
+# Path is resolved relative to the omniserve repo root because that's
+# where lserve_e2e_generation.py is launched from below.
+dataset_path=./scripts/aime24_llama8b.jsonl
+
 
 if [ ! -d "$model_path" ]; then
   mkdir -p models
@@ -36,4 +41,6 @@ python lserve_e2e_generation.py \
   --dec-local-token 256 \
   --sub-chunk-per-block 4 \
   --dynamic-sparse-token-budget 4096 \
-  --selector-update-interval 4
+  --selector-update-interval 4 \
+  --dataset-path $dataset_path \
+  --dataset-max-tokens 8192
