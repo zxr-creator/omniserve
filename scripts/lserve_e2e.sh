@@ -3,7 +3,7 @@
 model_path="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 precision="w16a16kv8"
 dataset_path=./aime24_llama8b.jsonl
-output_dir=/data/datasets/xinrui/My_Projects/v0.3/omniserve/results
+output_dir=/root/omniserve/omniserve/results
 
 dynamic_sparse_token_budgets=(464 976 1488 2000 2512 3024)
 
