@@ -226,6 +226,12 @@ class BaseBlockSpaceManager:
         assert last_block.device == Device.GPU
         if last_block.ref_count == 1:
             # Not shared with other sequences. Appendable.
+            # Proactively allocate the next block when the current one is full,
+            # so the fused decode kernel can write the new KV at position timestep.
+            if logical_blocks and logical_blocks[-1].is_full():
+                if not self.streaming_enabled:
+                    new_block = self.gpu_allocator.allocate()
+                    block_table.append(new_block)
             return None
         else:
             # The last block is shared with other sequences.

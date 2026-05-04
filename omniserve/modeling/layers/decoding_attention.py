@@ -94,7 +94,8 @@ class DecodingAttentionWrapper(torch.nn.Module):
         num_retrieval_kv_heads, num_streaming_kv_heads, timestep, hidden_dim_per_retrieval_token
     ):
         if timestep <= self.dynamic_sparse_token_budget:
-            selected_page_idx = torch.range(0, timestep // self.tokens_per_block, device=q.device, dtype=torch.int32).unsqueeze(0).unsqueeze(0).expand(q.shape[0], q.shape[1], -1).contiguous()
+            num_pages = (timestep - 1) // self.tokens_per_block + 1
+            selected_page_idx = torch.arange(num_pages, device=q.device, dtype=torch.int32).unsqueeze(0).unsqueeze(0).expand(q.shape[0], q.shape[1], -1).contiguous()
         
         else:
             dynamic_sparse_token_budget = min(self.dynamic_sparse_token_budget, timestep)
@@ -247,14 +248,21 @@ class DecodingAttentionWrapper(torch.nn.Module):
         kv_scale_quant_orig,
     ):
         timestep = input_metadata.max_seq_len
-        # Shang's important fix, but it might cause problem in the end of a block...
-        lengths_per_sample = input_metadata.retrieval_context_lens  # + 1
+        lengths_per_sample = input_metadata.retrieval_context_lens
 
         size_per_retrieval_token = num_retrieval_kv_heads * self.head_dim * (1 if self.use_int8 else 2) // (2 if self.kv_cache_config["INT4_ENABLED"] else 1)
         size_per_streaming_token = num_streaming_kv_heads * self.head_dim * (1 if self.use_int8 else 2) // (2 if self.kv_cache_config["INT4_ENABLED"] else 1)
         hidden_dim_per_retrieval_token = num_retrieval_kv_heads * self.head_dim
 
-        if ((timestep) % self.selector_update_interval != 0) and cached_dynamic_sparse_page_idx is not None:      # Since timestep is the length of history, not including the current token. No need to -1 here.
+        kv_scale_quant_orig = kv_scale_quant_orig.float()
+        kv_scale_orig_quant = 1 / kv_scale_quant_orig
+
+        if self.layer_idx == 0:
+            num_blocks_in_table = input_metadata.retrieval_block_tables[0].shape[-1] if input_metadata.retrieval_block_tables[0] is not None else -1
+            print(f"[DBG L0] timestep={timestep}, lengths_per_sample={lengths_per_sample.tolist()}, "
+                  f"block_table_cols={num_blocks_in_table}, tokens_per_block={self.tokens_per_block}", flush=True)
+
+        if ((timestep) % self.selector_update_interval != 0) and cached_dynamic_sparse_page_idx is not None:
             dynamic_sparse_page_idx = cached_dynamic_sparse_page_idx
         else:
             dynamic_sparse_page_idx = self.dynamic_select_topk_pages(    
@@ -266,14 +274,9 @@ class DecodingAttentionWrapper(torch.nn.Module):
                 size_per_retrieval_token, size_per_streaming_token,
                 num_retrieval_kv_heads, num_streaming_kv_heads, timestep, hidden_dim_per_retrieval_token
             )
-        
-        kv_scale_quant_orig = kv_scale_quant_orig.float()
-        kv_scale_orig_quant = 1 / kv_scale_quant_orig
 
         attn_output = fused_attention_per_tensor_sparse.single_query_attention(
-            q,
-            k,
-            v,
+            q, k, v,
             kv_scale_quant_orig,
             kv_scale_orig_quant,
             input_metadata.retrieval_block_tables[self.layer_idx],

@@ -11,6 +11,7 @@
 # }
 
 import argparse
+import json
 from typing import List, Tuple
 import random
 import os
@@ -43,6 +44,46 @@ def read_haystack_files(max_context_length, haystack_dir):
     return context
 
 
+def create_jsonl_prompts(
+    dataset_path: str,
+    max_tokens: int = 8192,
+    stop_token_ids: List[int] = None,
+    limit: int = None,
+) -> List[Tuple[str, SamplingParams]]:
+    """Load prompts from a JSONL file (one record per line, must have a `prompt` field).
+
+    Mirrors the shape returned by `create_test_prompts`: a list of
+    `(prompt, SamplingParams)` tuples. Used for AIME24-style benchmarks where
+    every example carries an already-templated chat prompt.
+    """
+    if not os.path.exists(dataset_path):
+        raise ValueError(f"Dataset file {dataset_path} does not exist")
+
+    sampling_params = SamplingParams(
+        temperature=0.6,
+        top_p=0.95,
+        stop_token_ids=stop_token_ids if stop_token_ids is not None else [128001, 128009],
+        max_tokens=max_tokens,
+    )
+
+    request_list: List[Tuple[str, SamplingParams]] = []
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            prompt = rec.get("prompt")
+            if prompt is None:
+                raise KeyError(f"Record in {dataset_path} missing 'prompt' field: keys={list(rec.keys())}")
+            request_list.append((prompt, sampling_params))
+            if limit is not None and len(request_list) >= limit:
+                break
+
+    print(f"{BG_PINK}Loaded {len(request_list)} prompts from {dataset_path}.{RESET}")
+    return request_list
+
+
 def create_test_prompts(conv_t, test_length=65536, test_depth=0.5, haystack_dir="./eval/needle/PaulGrahamEssays") -> List[Tuple[str, SamplingParams]]:
     """Create a list of test prompts with their sampling parameters."""
     # NOTE: For the sake of simplicity, test_length is the string length, not token length.
@@ -67,9 +108,10 @@ def create_test_prompts(conv_t, test_length=65536, test_depth=0.5, haystack_dir=
     return request_list
 
 
-def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingParams]]):
+def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingParams]], output_path: str = None):
     """Continuously process a list of prompts and handle the outputs."""
     request_id = 0
+    finished_records = []
 
     while test_prompts or engine.has_unfinished_requests():
         if test_prompts:
@@ -112,6 +154,10 @@ def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingPa
         for request_output in requests_outputs:
             if request_output["finished"]:
                 finished += 1
+                finished_records.append({
+                    "id": request_output["id"],
+                    "text": request_output["text"],
+                })
                 print(
                     f"{BG_GREEN}[Conversation {request_output['id']} output]{RESET} {request_output['text']}"
                 )
@@ -126,6 +172,13 @@ def process_requests(engine: LLMEngine, test_prompts: List[Tuple[str, SamplingPa
     assert num_test_prompts == finished
     print(f"{BG_PINK}{finished} requests are finished.{RESET}")
 
+    if output_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            for rec in finished_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        print(f"{BG_PINK}Wrote {len(finished_records)} outputs to {output_path}{RESET}")
+
 
 def initialize_engine(args: argparse.Namespace) -> LLMEngine:
     """Initialize the LLMEngine from the command line arguments."""
@@ -136,16 +189,48 @@ def initialize_engine(args: argparse.Namespace) -> LLMEngine:
 def main(args: argparse.Namespace):
     """Main function that sets up and runs the prompt processing."""
     engine = initialize_engine(args)
-    conversation_template = get_conv_template_name(args.model)
-    test_prompts = create_test_prompts(
-        conv_t=conversation_template
-    )
-    process_requests(engine, test_prompts)
+    if getattr(args, "dataset_path", None):
+        test_prompts = create_jsonl_prompts(
+            dataset_path=args.dataset_path,
+            max_tokens=args.dataset_max_tokens,
+            limit=args.dataset_limit,
+        )
+    else:
+        conversation_template = get_conv_template_name(args.model)
+        test_prompts = create_test_prompts(
+            conv_t=conversation_template
+        )
+    process_requests(engine, test_prompts, output_path=args.output_path)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Demo on using the LLMEngine class directly"
+    )
+    parser.add_argument(
+        "--dataset-path",
+        type=str,
+        default=None,
+        help="Optional path to a JSONL file with a 'prompt' field per record (e.g. AIME24). "
+             "If set, replaces the default needle-in-haystack prompt.",
+    )
+    parser.add_argument(
+        "--dataset-max-tokens",
+        type=int,
+        default=8192,
+        help="max_tokens for SamplingParams when running a JSONL dataset (default: 8192).",
+    )
+    parser.add_argument(
+        "--dataset-limit",
+        type=int,
+        default=None,
+        help="Optional cap on the number of JSONL records to run.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default=None,
+        help="Optional path to a JSONL file where finished outputs (id, text) will be written.",
     )
     parser = EngineArgs.add_cli_args(parser)
     args = parser.parse_args()
