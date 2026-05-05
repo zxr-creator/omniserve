@@ -3,11 +3,10 @@ attn_path=./attn_patterns/Llama-3-8B-Instruct-Gradient-1048k
 model_path=./models/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor
 
 
-if [ ! -d "$model_path" ]; then
+if [ ! -f "$model_path/pytorch_model.bin" ] || [ $(stat -c%s "$model_path/pytorch_model.bin") -lt 1000000 ]; then
   mkdir -p models
-  cd models
-  git clone https://huggingface.co/mit-han-lab/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor
-  cd ..
+  huggingface-cli download mit-han-lab/Llama-3-8B-Instruct-Gradient-1048k-w8a8-per-channel-kv8-per-tensor \
+    --local-dir "$model_path"
 fi
 
 precision="w8a8kv8"

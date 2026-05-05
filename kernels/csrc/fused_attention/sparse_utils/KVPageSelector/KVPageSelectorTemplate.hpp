@@ -830,8 +830,8 @@ namespace mmha
         constexpr bool MULTI_BLOCK_FLAG = false;
 #endif
 
-        // Use smem_size_in_bytes (above) to determine the amount of shared memory.
-        extern __shared__ char smem_[Dh_MAX];   // only used for the q_smem in this kernel
+        // Use smem_size_in_bytes (host, launch config) to allocate dynamic shared memory for this buffer.
+        extern __shared__ char smem_[];
 
         // The shared memory for the Q*K^T values and partial logits in softmax.
         // auto qk_smem = reinterpret_cast<float *>(smem_);
@@ -1344,69 +1344,14 @@ namespace mmha
     template <typename T, int Dh, bool DO_MULTI_BLOCK>
     inline size_t smem_size_in_bytes(const Multihead_attention_page_selector_params<T> &params, int threads_per_block)
     {
-        return 0;   // No need to pre-allocate shared memory for page selector.
-//         using Tk = typename kernel_type_t<T>::Type;
-//         // The amount of shared memory needed to store the Q*K^T values in float.
-//         // const int max_timesteps = DO_CROSS_ATTENTION
-//         //                               ? params.memory_max_len
-//         //                               : min((DO_MULTI_BLOCK ? params.timesteps_per_block : params.timestep), params.memory_max_len);
-
-//         int max_shared_mem;
-//         cudaDeviceGetAttribute(&max_shared_mem, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0);
-//         // printf("Max shared memory: %d\n", max_shared_mem);
-        
-//         // printf("params.timestep: %d, params.timesteps_per_block: %d, params.memory_max_len: %d\n", params.timestep, params.timesteps_per_block, params.memory_max_len);
-
-//         // Modify the smem size for dynamic_sparse
-//         const int local_timestep = params.do_dynamic_sparse ? ((params.num_dynamic_sparse_pages - 1) * params.tokens_per_block + (params.timestep - 1) % params.tokens_per_block + 1) : params.timestep;
-//         // printf("local_timestep: %d\n", local_timestep);
-
-//         const int max_timesteps = max(min((DO_MULTI_BLOCK ? params.timesteps_per_block : local_timestep), params.memory_max_len), params.streaming_sink_token_num + params.streaming_local_token_num);
-        
-        
-//         // printf("max_timesteps in smem_size_in_bytes(): %d\n", max_timesteps);
-//         const auto qk_elts = static_cast<std::size_t>(divUp(max_timesteps + 1, 4)); // explicit cast because of the sign
-//         const auto qk_sz = qk_elts * 16;
-//         // printf("max_timesteps: %d\n", max_timesteps);
-//         // The extra memory needed if we are not using floats for the final logits.
-//         size_t logits_sz = 0;
-// #ifndef MMHA_USE_FP32_ACUM_FOR_LOGITS
-//         if (sizeof(Tk) != 4)
-//         {
-//             logits_sz = qk_elts * 4 * sizeof(Tk);    // This should be correct. // But Anyway let's have a try with the following one. // Seems to work for slightly longer sequences. // Not the correct solution.
-//             // logits_sz = qk_elts * 16;
-//         }
-// #endif
-        
-//         // The total size needed during softmax.
-//         size_t softmax_sz = qk_sz + logits_sz;
-
-//         auto constexpr threads_per_value = mmha::threads_per_value<T>(dh_max(Dh));
-
-//         // The number of partial rows to reduce in the final reduction.
-//         int rows_per_red = threads_per_block / threads_per_value;
-//         // The amount of storage needed to finalize the outputs.
-//         size_t red_sz = rows_per_red * params.hidden_size_per_head * sizeof(Tk) / 2;
-
-//         size_t transpose_rotary_size = 0;
-//         if (params.position_embedding_type == PositionEmbeddingType::kROPE_GPT_NEOX)
-//         {
-//             // assert(params.rotary_embedding_dim > 0);
-//             transpose_rotary_size = 2 * params.rotary_embedding_dim * sizeof(Tk);
-//         }
-
-//         size_t out_oi_sz = 0;
-//         if (params.multi_block_mode)
-//         {
-//             // The size for partial output reduction computation.
-//             out_oi_sz = params.max_seq_len_tile * params.hidden_size_per_head * sizeof(T);
-//         }
-
-
-//         // printf("[in smem_size_in_bytes]return: %d\n", max(max(max(softmax_sz, red_sz), transpose_rotary_size), out_oi_sz));
-//         // The max.
-//         printf("return size: %d; softmax_sz: %d; red_sz: %d, transpose_rotary_size: %d, out_oi_sz: %d\n", max(max(max(softmax_sz, red_sz), transpose_rotary_size), out_oi_sz), softmax_sz, red_sz, transpose_rotary_size, out_oi_sz);
-//         return max(max(max(softmax_sz, red_sz), transpose_rotary_size), out_oi_sz);
+        using Tk = typename kernel_type_t<T>::Type;
+        size_t transpose_rotary_size = 0;
+        if (params.position_embedding_type == PositionEmbeddingType::kROPE_GPT_NEOX)
+        {
+            transpose_rotary_size =
+                2ULL * static_cast<size_t>(params.rotary_embedding_dim) * sizeof(Tk);
+        }
+        return transpose_rotary_size;
     }
 
 } // namespace mmha
